@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { theme } from "@/lib/theme";
 
 export default function TrackingScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id?: string }>();
   const [ride, setRide] = useState<Ride | null>(null);
   const [driver, setDriver] = useState<Driver | null>(null);
 
@@ -15,18 +15,23 @@ export default function TrackingScreen() {
     if (!id) return;
     let active = true;
 
-    const loadRide = async () => {
-      const { data } = await supabase.from("rides").select("*").eq("id", id).single();
-      if (active && data) setRide(data as Ride);
-    };
-    loadRide();
+    supabase
+      .from("rides")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active && data) setRide(data as Ride);
+      });
 
     const channel = supabase
       .channel(`ride:${id}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "rides", filter: `id=eq.${id}` },
-        (payload) => setRide(payload.new as Ride),
+        (payload) => {
+          if (active) setRide(payload.new as Ride);
+        },
       )
       .subscribe();
 
@@ -36,17 +41,39 @@ export default function TrackingScreen() {
     };
   }, [id]);
 
+  // Driver info + live location. Re-subscribes when the assigned driver changes.
   useEffect(() => {
     if (!ride?.driver_id) {
       setDriver(null);
       return;
     }
+    const driverId = ride.driver_id;
+    let active = true;
+
     supabase
       .from("drivers")
       .select("*")
-      .eq("id", ride.driver_id)
-      .single()
-      .then(({ data }) => data && setDriver(data as Driver));
+      .eq("id", driverId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active && data) setDriver(data as Driver);
+      });
+
+    const channel = supabase
+      .channel(`driver:${driverId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "drivers", filter: `id=eq.${driverId}` },
+        (payload) => {
+          if (active) setDriver(payload.new as Driver);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
   }, [ride?.driver_id]);
 
   if (!ride) {
@@ -61,7 +88,9 @@ export default function TrackingScreen() {
     <SafeAreaView style={styles.root}>
       <View style={styles.card}>
         <Text style={styles.status}>{labelFor(ride.status)}</Text>
-        <Text style={styles.fare}>{formatFare(ride.fare_cents)}</Text>
+        <Text style={styles.fare}>
+          {ride.fare_cents != null ? formatFare(ride.fare_cents) : "Fare pending"}
+        </Text>
 
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Pickup</Text>
@@ -78,6 +107,11 @@ export default function TrackingScreen() {
             <Text style={styles.driverName}>{driver.name}</Text>
             <Text style={styles.driverMeta}>{driver.vehicle} · {driver.plate}</Text>
             <Text style={styles.driverMeta}>★ {driver.rating.toFixed(1)}</Text>
+            {driver.lat != null && driver.lng != null ? (
+              <Text style={styles.coords}>
+                At {driver.lat.toFixed(4)}, {driver.lng.toFixed(4)}
+              </Text>
+            ) : null}
           </View>
         ) : (
           <Text style={styles.waiting}>Finding your driver…</Text>
@@ -118,6 +152,7 @@ const styles = StyleSheet.create({
   driverTitle: { color: theme.textDim, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 },
   driverName: { color: theme.gold, fontSize: 22, fontWeight: "700", marginTop: 6 },
   driverMeta: { color: theme.text, marginTop: 2 },
+  coords: { color: theme.textDim, marginTop: 6, fontSize: 12 },
   waiting: { color: theme.textDim, marginTop: 24, textAlign: "center" },
   button: { backgroundColor: theme.gold, borderRadius: 12, padding: 16, alignItems: "center", marginTop: 24 },
   buttonText: { color: theme.bgDark, fontSize: 16, fontWeight: "700" },

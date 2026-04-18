@@ -37,10 +37,11 @@ export default function PhoneScreen() {
         <TextInput
           value={phone}
           onChangeText={setPhone}
-          placeholder="(917) 555-0100"
+          placeholder="10-digit number"
           placeholderTextColor={theme.textDim}
           keyboardType="phone-pad"
           autoComplete="tel"
+          textContentType="telephoneNumber"
           style={styles.input}
         />
 

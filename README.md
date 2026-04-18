@@ -13,10 +13,14 @@ packages/
 
 ## End-to-end flow wired in this cut
 
-Phone OTP → book ride → dispatch assigns driver → rider sees driver live.
+Phone OTP → (full-name capture) → rider GPS pickup → book → dispatcher assigns
+(and confirms metered fare) → driver accepts, progresses status en_route →
+arrived → on_trip → completed → rider sees every state live with driver's GPS.
 
-Everything else from the prototype (driver app, payments, navigation deep links,
-push notifications, SMS templates) is deliberately not here yet.
+Payments are "cash on completion" for the first live test. Everything on the
+rider/dispatcher/driver screens is live against real Supabase rows — no mock
+data is seeded. Roberto onboards real drivers by inserting real rows and
+linking them via `profile_id` (dispatch UI for that comes next).
 
 ## Prereqs
 
@@ -41,6 +45,19 @@ Promote your dispatcher account:
 
 ```sql
 update public.profiles set role = 'dispatcher' where phone = '+1XXXXXXXXXX';
+```
+
+Onboard a driver — create the driver row AND link it to their auth profile so
+the driver app can see their own rides:
+
+```sql
+-- Driver signs in with phone OTP first (auto-creates a profiles row with role='rider').
+-- Then:
+update public.profiles set role = 'driver' where phone = '+1XXXXXXXXXX';
+
+insert into public.drivers (profile_id, name, phone, vehicle, plate, status)
+values ((select id from public.profiles where phone = '+1XXXXXXXXXX'),
+        'Driver Name', '+1XXXXXXXXXX', '2024 Cadillac Escalade', 'NYC-XXXX', 'offline');
 ```
 
 ## Run

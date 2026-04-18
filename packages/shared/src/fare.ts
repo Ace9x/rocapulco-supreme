@@ -36,5 +36,6 @@ function matchFlatRate(dropoff: string): string | null {
 }
 
 export function formatFare(cents: number): string {
+  if (!Number.isFinite(cents) || cents < 0) return "—";
   return `$${(cents / 100).toFixed(2)}`;
 }

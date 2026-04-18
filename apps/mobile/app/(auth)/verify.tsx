@@ -6,13 +6,17 @@ import { supabase } from "@/lib/supabase";
 import { theme } from "@/lib/theme";
 
 export default function VerifyScreen() {
-  const { phone } = useLocalSearchParams<{ phone: string }>();
+  const { phone } = useLocalSearchParams<{ phone?: string }>();
   const [code, setCode] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const verify = async () => {
-    if (!phone || code.length !== 6) {
+    if (!phone) {
+      setError("Phone number missing — start over.");
+      return;
+    }
+    if (code.length !== 6) {
       setError("Enter the 6-digit code.");
       return;
     }
@@ -24,14 +28,15 @@ export default function VerifyScreen() {
       setError(err.message);
       return;
     }
-    router.replace("/(rider)/home");
+    // Route tree owned by app/index.tsx — go there so it can decide rider/driver/name-capture.
+    router.replace("/");
   };
 
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.inner}>
         <Text style={styles.title}>Enter code</Text>
-        <Text style={styles.subtitle}>Sent to {phone}</Text>
+        <Text style={styles.subtitle}>Sent to {phone ?? "your phone"}</Text>
 
         <TextInput
           value={code}

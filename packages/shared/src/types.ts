@@ -33,7 +33,7 @@ export interface Ride {
   dropoff_address: string;
   dropoff_lat: number | null;
   dropoff_lng: number | null;
-  fare_cents: number;
+  fare_cents: number | null;
   payment_method: PaymentMethod;
   status: RideStatus;
   created_at: string;
