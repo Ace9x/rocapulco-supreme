@@ -31,6 +31,11 @@ linking them via `profile_id` (dispatch UI for that comes next).
 
 ## Setup
 
+Full step-by-step for a live test is in **[docs/SETUP.md](docs/SETUP.md)**
+(Supabase + Twilio + dispatcher/driver onboarding + Vercel deploy).
+
+Short form:
+
 ```bash
 pnpm install
 
@@ -38,7 +43,9 @@ cp apps/mobile/.env.example apps/mobile/.env
 cp apps/dispatch/.env.example apps/dispatch/.env
 # fill in SUPABASE_URL / SUPABASE_ANON_KEY in both
 
-# apply schema + seed to your Supabase project (see packages/supabase/README.md)
+# apply packages/supabase/migrations/0001_initial.sql then 0002_*.sql
+# wire Twilio into Supabase phone auth
+# run packages/supabase/scripts/promote_dispatcher.sql and onboard_driver.sql
 ```
 
 Promote your dispatcher account:
