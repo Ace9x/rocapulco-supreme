@@ -1,214 +1,127 @@
-# Rocapulco Supreme — Setup Guide (30–45 min)
+# Live test setup
 
-This guide gets you from zero to a working dispatch app with Supabase phone auth and Twilio SMS OTP.
+Step-by-step to go from zero to a real rider hailing a real ride. Should take
+~30–45 minutes. Do the steps in order.
 
----
+## 1. Supabase project (5 min)
 
-## Prerequisites
-
-- Node.js 18+ and pnpm installed locally
-- A smartphone with Expo Go installed
-- A credit card (Twilio requires one even for trial)
-
----
-
-## Step 1 — Create a Supabase Project (~5 min)
-
-1. Go to [supabase.com](https://supabase.com) → **New project**
-2. Choose a name (e.g. `rocapulco`), pick a region close to you, set a strong DB password
-3. Wait ~2 min for provisioning
-4. In the left sidebar → **Project Settings → API**
-   - Copy **Project URL** → this is `NEXT_PUBLIC_SUPABASE_URL`
-   - Copy **anon public** key → this is `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-5. Save both values — you'll need them for Vercel and your `.env.local`
-
----
-
-## Step 2 — Run the Database Migrations (~5 min)
-
-In the Supabase dashboard → **SQL Editor** → **New query**
-
-Paste and run each migration in order:
-
-### Migration 1 — Core schema (profiles + trigger)
-
-```sql
--- profiles table (extends auth.users)
-create table public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  phone text unique,
-  role text not null default 'driver' check (role in ('driver', 'dispatcher', 'admin')),
-  display_name text,
-  created_at timestamptz default now()
-);
-
-alter table public.profiles enable row level security;
-
-create policy "Users read own profile"
-  on public.profiles for select
-  using (auth.uid() = id);
-
-create policy "Users update own profile"
-  on public.profiles for update
-  using (auth.uid() = id);
-
--- Auto-create profile on new signup
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, phone)
-  values (new.id, new.phone);
-  return new;
-end;
-$$ language plpgsql security definer;
-
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
-```
-
-### Migration 2 — Jobs / dispatch schema
-
-```sql
-create table public.jobs (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz default now(),
-  status text not null default 'pending'
-    check (status in ('pending','assigned','in_progress','completed','cancelled')),
-  pickup_address text not null,
-  dropoff_address text not null,
-  driver_id uuid references public.profiles(id),
-  dispatcher_id uuid references public.profiles(id),
-  notes text
-);
-
-alter table public.jobs enable row level security;
-
--- Dispatchers and admins see and manage all jobs
-create policy "Dispatchers manage all jobs"
-  on public.jobs for all
-  using (
-    exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role in ('dispatcher','admin')
-    )
-  );
-
--- Drivers see only their own assigned jobs
-create policy "Drivers see own jobs"
-  on public.jobs for select
-  using (driver_id = auth.uid());
-```
-
----
-
-## Step 3 — Create Twilio Account and Wire Phone Auth (~10 min)
-
-1. Go to [twilio.com/try-twilio](https://www.twilio.com/try-twilio) → sign up (free trial ~$15 credit)
-2. Verify your own phone number during signup
-3. Console → **Get a phone number** → pick any US number
-4. Note your:
-   - **Account SID** (starts with `AC…`)
-   - **Auth Token** (click to reveal)
-   - **Phone number** (e.g. `+15005550006` for Twilio test, or your real number)
-
-> **Trial account limitation:** You can only SMS to Verified Caller IDs. Go to
-> **Console → Phone Numbers → Verified Caller IDs** and add each driver/dispatcher
-> phone before they log in. Upgrade to a paid account to lift this restriction.
-
-### Wire Twilio into Supabase Auth
-
-1. Supabase dashboard → **Authentication → Providers → Phone**
-2. Toggle **Enable Phone provider** ON
-3. Set **SMS provider** → **Twilio**
-4. Paste **Account SID**, **Auth Token**, and your **Twilio phone number**
-5. Set **OTP expiry** → `600` (10 minutes)
-6. **Save**
-
----
-
-## Step 4 — OTP In as Yourself and Promote to Dispatcher (~5 min)
-
-1. Copy the example env file and fill in your values:
+1. Go to [supabase.com](https://supabase.com) → **New project**.
+2. Name: `rocapulco-prod`. Region: `us-east-1`. Set a DB password and save it.
+3. When it's provisioned, open **Project Settings → API** and copy:
+   - `Project URL`
+   - `anon` `public` key
+4. Paste those into both `.env` files:
    ```bash
-   cp .env.example .env.local
-   # Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
+   cp apps/mobile/.env.example apps/mobile/.env
+   cp apps/dispatch/.env.example apps/dispatch/.env
+   # fill in SUPABASE_URL and SUPABASE_ANON_KEY in both
    ```
 
-2. Install dependencies and start Expo:
-   ```bash
-   pnpm install
-   pnpm --filter expo-app dev   # or: npx expo start
-   ```
+## 2. Apply the schema (2 min)
 
-3. Scan the QR code in Expo Go on your phone
-4. Enter your phone number → receive SMS OTP → enter it → you're in as `driver` (default)
+In the Supabase dashboard → **SQL Editor → New query**, paste the contents of:
 
-5. Open Supabase SQL Editor and run **promote_dispatcher.sql** (see `packages/supabase/scripts/`):
-   ```sql
-   -- substitute YOUR actual phone number
-   update public.profiles
-   set role = 'dispatcher'
-   where phone = '+1XXXXXXXXXX';
-   ```
+1. `packages/supabase/migrations/0001_initial.sql` — run
+2. `packages/supabase/migrations/0002_metered_fares_and_driver_visibility.sql` — run
 
-6. Verify: in the Supabase **Table Editor → profiles** — your row should show `role = dispatcher`
+Leave `packages/supabase/seed.sql` alone — it's intentionally empty so no fake
+drivers ship.
 
----
+## 3. Twilio account for SMS OTP (10–15 min)
 
-## Step 5 — Onboard a Driver (~2 min)
+You need Twilio to send the login codes. Supabase won't send them for you.
 
-Have the driver:
-1. Open Expo Go and OTP in with their own phone number
+1. Sign up at [twilio.com/try-twilio](https://www.twilio.com/try-twilio). Add
+   payment (you'll use ~$0.01/SMS).
+2. On the Twilio console home, copy:
+   - **Account SID**
+   - **Auth Token**
+3. Go to **Messaging → Services → Create Messaging Service**.
+   - Name: `Rocapulco OTP`
+   - Use case: `Verify users`
+4. In the service, **Add Senders → Phone number**. Buy a US local number
+   (~$1.15/mo) or use the trial number for first tests.
+5. Copy the **Messaging Service SID** (starts with `MG...`).
 
-Then (optional) confirm their profile exists:
-```sql
--- run onboard_driver.sql — substitute driver's phone
-select * from public.profiles where phone = '+1XXXXXXXXXX';
+## 4. Wire Twilio into Supabase phone auth (3 min)
+
+In the Supabase dashboard → **Authentication → Providers → Phone**:
+
+1. Toggle **Enable phone provider** on.
+2. **SMS provider**: Twilio
+3. Paste **Twilio Account SID**, **Auth Token**, **Messaging Service SID**.
+4. Set **OTP expiry**: `600` seconds (10 min).
+5. Set **OTP length**: `6`.
+6. **Save**.
+
+Smoke test: in the same page there's a **Send test SMS** option. Use your own
+number. If you don't get the code, fix Twilio before moving on.
+
+## 5. Promote yourself to dispatcher (3 min)
+
+1. In one terminal: `pnpm mobile start`
+2. Install [Expo Go](https://expo.dev/go) on your phone, scan the QR code.
+3. Enter your phone number, get the OTP, verify, enter your name.
+4. Back in the Supabase SQL editor, paste `packages/supabase/scripts/promote_dispatcher.sql`,
+   change `'+1XXXXXXXXXX'` to your actual phone, run.
+5. Sign out of Expo Go (you'll sign back in on the dispatch dashboard).
+
+## 6. Onboard your first driver (5 min)
+
+1. Hand Expo Go to the driver. They enter their phone, OTP, name.
+2. Sign out.
+3. In the SQL editor, paste `packages/supabase/scripts/onboard_driver.sql`,
+   fill in phone + name + vehicle + plate, run.
+4. Driver signs back in — they should now land on the driver home screen with
+   the online toggle.
+
+## 7. Deploy the dispatch dashboard (10 min)
+
+**Option A — Vercel (recommended):**
+
+1. `vercel.json` at the repo root already targets the dispatch app.
+2. Go to [vercel.com/new](https://vercel.com/new), import the
+   `Ace9x/rocapulco-supreme` repo.
+3. **Leave Root Directory at the default** (repo root). Vercel will pick up
+   `vercel.json` and install via pnpm workspaces automatically.
+4. **Environment variables**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+   (same values as your mobile `.env`).
+5. Deploy. Bookmark the URL.
+
+**Option B — run locally on your laptop:**
+
+```bash
+pnpm dispatch dev
+# visit http://localhost:5173
 ```
 
-If the row is missing (trigger didn't fire), insert manually:
-```sql
-insert into public.profiles (id, phone)
-select id, phone from auth.users where phone = '+1XXXXXXXXXX'
-on conflict do nothing;
-```
+## 8. Run the first real test
 
----
+1. Dispatch dashboard: sign in (your phone number → OTP).
+2. Driver's phone (Expo Go): they flip the **Online** switch.
+3. Rider's phone (Expo Go, separate account): OTP in, type a name, tap
+   **Use my location**, type `JFK Terminal 4` as dropoff, tap **Request ride**.
+4. Dispatcher sees the pending ride, picks the driver, hits **Assign**.
+5. Driver's phone: the ride shows up. Tap **Start driving** → **I've arrived**
+   → **Start trip** → **Complete trip**.
 
-## Step 6 — Deploy Dispatch App to Vercel (~5 min)
+Rider's screen tracks every state change live, including the driver's GPS
+coordinates.
 
-1. Go to [vercel.com](https://vercel.com) → **Add New Project** → Import this GitHub repo
-2. Vercel auto-detects `vercel.json` at the repo root — **no extra dashboard config needed**
-3. In **Environment Variables**, add:
-   - `NEXT_PUBLIC_SUPABASE_URL` = your project URL
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your anon key
-4. Click **Deploy** (takes ~90 sec)
-5. Share the production URL with dispatchers — done!
+## Known limitations on first test
 
----
+- **Cash on completion** — Stripe isn't wired yet. Driver collects cash when
+  they hit Complete.
+- **No map view** — the rider sees the driver's coordinates as numbers, not a
+  moving dot. A MapView comes in the next cut.
+- **App icon** — default Expo placeholder. Branding comes with the EAS build.
+- **Expo Go only** — for a polished install on the App Store / Play Store, we
+  need `eas build` + store submissions. That's a separate ~2-day process.
 
-## Troubleshooting
+## Costs for a first week of testing
 
-| Symptom | Fix |
-|---|---|
-| Twilio error 21608 | Trial accounts can only SMS verified numbers. Add phone in Console → Verified Caller IDs |
-| RLS policy denied on jobs | Confirm `promote_dispatcher.sql` ran. Check profiles table — role must be `dispatcher` |
-| OTP never arrives | Check Twilio Console → Monitor → Logs → Messaging for errors |
-| Vercel build fails | Confirm both `NEXT_PUBLIC_` env vars are set in Vercel project settings |
-| `pnpm install` fails | Ensure Node 18+ and pnpm 8+. Run `corepack enable && corepack prepare pnpm@latest --activate` |
-| Expo app white screen | Check Metro bundler console for missing env vars or import errors |
-
----
-
-## First-Test Checklist
-
-Run through these after setup to confirm everything works end-to-end:
-
-- [ ] SMS OTP received and login succeeds in Expo Go
-- [ ] Row appears in `profiles` table immediately after first login
-- [ ] After promote SQL, your profile shows `role = dispatcher`
-- [ ] Dispatch web app loads at Vercel production URL
-- [ ] Dispatcher can create a job in the dispatch UI
-- [ ] Driver can see their assigned job in Expo Go
-- [ ] Job status updates propagate in real time (Supabase Realtime)
+- Supabase free tier: $0
+- Twilio SMS: ~$0.01/OTP × maybe 50 OTPs = $0.50
+- Twilio phone number: $1.15
+- Vercel hobby tier: $0
+- **Total: ~$2**

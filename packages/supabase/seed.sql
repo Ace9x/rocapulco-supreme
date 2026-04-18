@@ -1,0 +1,8 @@
+-- Real fleet goes here. Intentionally empty — seed your actual drivers through
+-- the dispatcher web UI (planned) or insert rows manually. Do NOT ship with
+-- placeholder fleet data: a rider could be matched to a driver who doesn't exist.
+--
+-- Example (uncomment and replace with real driver details before applying):
+--
+-- insert into public.drivers (name, phone, vehicle, plate, rating, status, lat, lng) values
+--   ('<full name>', '+1XXXXXXXXXX', '<year make model>', '<plate>', 5.00, 'offline', null, null);

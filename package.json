@@ -1,0 +1,19 @@
+{
+  "name": "rocapulco-supreme",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Rocapulco Supreme — rider + dispatch + shared packages",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "mobile": "pnpm --filter @rocapulco/mobile",
+    "dispatch": "pnpm --filter @rocapulco/dispatch",
+    "shared": "pnpm --filter @rocapulco/shared",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
